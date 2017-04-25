@@ -4,7 +4,7 @@
 # http://www.airspayce.com/mikem/bcm2835/
 
 CC       = g++
-CFLAGS   = -std=c++11 -DRASPBERRY_PI -DBCM2835_NO_DELAY_COMPATIBILITY -D__BASEFILE__=\"$*\"
+CFLAGS   = -g -std=c++11 -DRASPBERRY_PI -DBCM2835_NO_DELAY_COMPATIBILITY -D__BASEFILE__=\"$*\"
 LIBS     = -lbcm2835
 LMICBASE = ../../../src
 INCLUDE  = -I$(LMICBASE) 
@@ -16,6 +16,9 @@ raspi.o: $(LMICBASE)/raspi/raspi.cpp
 
 radio.o: $(LMICBASE)/lmic/radio.c
 				$(CC) $(CFLAGS) -c $(LMICBASE)/lmic/radio.c $(INCLUDE)
+
+lib_crc.o: lib_crc.c
+				$(CC) $(CFLAGS) -c $(INCLUDE) $<
 
 oslmic.o: $(LMICBASE)/lmic/oslmic.c
 				$(CC) $(CFLAGS) -c $(LMICBASE)/lmic/oslmic.c $(INCLUDE)
@@ -32,7 +35,7 @@ aes.o: $(LMICBASE)/aes/lmic.c
 raw.o: raw.cpp
 				$(CC) $(CFLAGS) -c $(INCLUDE) $<
 
-raw: raw.o raspi.o radio.o oslmic.o lmic.o hal.o aes.o
+raw: raw.o raspi.o radio.o lib_crc.o oslmic.o lmic.o hal.o aes.o
 				$(CC) $^ $(LIBS) -o raw
 
 clean:

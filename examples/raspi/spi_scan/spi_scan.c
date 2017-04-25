@@ -75,7 +75,7 @@ int main(int argc, char **argv)
   } else {
     // List of all CS line where module can be connected
     // GPIO6, GPIO8/CE0, GPIO7/CE1, GPIO26
-    uint8_t CS_pins[] = {6, 7, 8, 26};
+    uint8_t CS_pins[] = {6, 7, 8, 25};
     uint8_t i;
 
     // Init SPI

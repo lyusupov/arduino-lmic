@@ -261,11 +261,14 @@ static u1_t randbuf[16];
 
 
 static void writeReg (u1_t addr, u1_t data ) {
+//    printf("writeReg(): addr = %x , data = %x\n", addr, data);
     hal_pin_nss(0);
     hal_spi(addr | 0x80);
     hal_spi(data);
     hal_pin_nss(1);
 }
+
+#define FIFO_Push_Inv(x)      writeReg(RegFifo, (u1_t)~(x))
 
 static u1_t readReg (u1_t addr) {
     hal_pin_nss(0);
@@ -284,6 +287,15 @@ static void writeBuf (u1_t addr, xref2u1_t buf, u1_t len) {
     hal_pin_nss(1);
 }
 
+static void writeBuf_Inv (u1_t addr, xref2u1_t buf, u1_t len) {
+    hal_pin_nss(0);
+    hal_spi(addr | 0x80);
+    for (u1_t i=0; i<len; i++) {
+        hal_spi(~buf[i]);
+    }
+    hal_pin_nss(1);
+}
+
 static void readBuf (u1_t addr, xref2u1_t buf, u1_t len) {
     hal_pin_nss(0);
     hal_spi(addr & 0x7F);
@@ -293,24 +305,37 @@ static void readBuf (u1_t addr, xref2u1_t buf, u1_t len) {
     hal_pin_nss(1);
 }
 
+static void readBuf_Inv (u1_t addr, xref2u1_t buf, u1_t len) {
+    hal_pin_nss(0);
+    hal_spi(addr & 0x7F);
+    for (u1_t i=0; i<len; i++) {
+        buf[i] = ~(hal_spi(0x00));
+    }
+    hal_pin_nss(1);
+}
+
 static void opmode (u1_t mode) {
+//    printf("start of opmode(): mode = %x, RegOpMode = %x\n", mode, readReg(RegOpMode));
     writeReg(RegOpMode, (readReg(RegOpMode) & ~OPMODE_MASK) | mode);
+    delay(1);
 }
 
 static void opmodeLora() {
     u1_t u = OPMODE_LORA;
 #ifdef CFG_sx1276_radio
-    u |= 0x8;   // TBD: sx1276 high freq
+//    u |= 0x8;   // TBD: sx1276 high freq
 #endif
     writeReg(RegOpMode, u);
+//    printf("end of opmodeLora(): u = %x, RegOpMode = %x\n", u, readReg(RegOpMode));
 }
 
 static void opmodeFSK() {
     u1_t u = 0;
 #ifdef CFG_sx1276_radio
-    u |= 0x8;   // TBD: sx1276 high freq
+//    u |= 0x8;   // TBD: sx1276 high freq
 #endif
     writeReg(RegOpMode, u);
+//    printf("end of opmodeFSK(): u = %x, RegOpMode = %x\n", u, readReg(RegOpMode));
 }
 
 // configure LoRa modem (cfg1, cfg2)
@@ -423,41 +448,82 @@ static void configPower () {
 #endif /* CFG_sx1272_radio */
 }
 
+#define RF_FIFOTHRESH_TXSTARTCONDITION_FIFONOTEMPTY 0x80
+
 static void txfsk () {
+    u2_t crc16 = 0xffff;  /* seed value */
+
     // select FSK modem (from sleep mode)
-    writeReg(RegOpMode, 0x10); // FSK, BT=0.5
-    ASSERT(readReg(RegOpMode) == 0x10);
+    writeReg(RegOpMode, 0x0 /* 0x10 */ ); // FSK, BT=0.5
+    ASSERT(readReg(RegOpMode) == 0x0 /* 0x10 */ );
     // enter standby mode (required for FIFO loading))
     opmode(OPMODE_STANDBY);
     // set bitrate
-    writeReg(FSKRegBitrateMsb, 0x02); // 50kbps
-    writeReg(FSKRegBitrateLsb, 0x80);
+    writeReg(FSKRegBitrateMsb, 0x01); // 100kbps
+    writeReg(FSKRegBitrateLsb, 0x40);
     // set frequency deviation
-    writeReg(FSKRegFdevMsb, 0x01); // +/- 25kHz
-    writeReg(FSKRegFdevLsb, 0x99);
+    writeReg(FSKRegFdevMsb, 0x03); // +/- 50kHz
+    writeReg(FSKRegFdevLsb, 0x33);
+
+    writeReg(FSKRegPacketConfig1, 0x20 /* 0xD0 */);  // Manchester (inverted)
+    writeReg(FSKRegPacketConfig2, 0x40);
+
     // frame and packet handler settings
     writeReg(FSKRegPreambleMsb, 0x00);
-    writeReg(FSKRegPreambleLsb, 0x05);
-    writeReg(FSKRegSyncConfig, 0x12);
-    writeReg(FSKRegPacketConfig1, 0xD0);
-    writeReg(FSKRegPacketConfig2, 0x40);
-    writeReg(FSKRegSyncValue1, 0xC1);
-    writeReg(FSKRegSyncValue2, 0x94);
-    writeReg(FSKRegSyncValue3, 0xC1);
+    writeReg(FSKRegPreambleLsb, 0x01);
+//    printf("FSKRegSyncConfig = %x\n", readReg(FSKRegSyncConfig));
+
+    writeReg(FSKRegSyncConfig, 0x31);
+
+    /* IEEE  Manchester(F5) = 55 99 */
+
+    writeReg(FSKRegSyncValue1, 0x55);
+    writeReg(FSKRegSyncValue2, 0x99);
+    
+    /*  IEEE Manchester(31FAB6) = A5 A9 55 66 65 96 */
+
+//    writeReg(FSKRegSyncValue3, 0xA5);
+//    writeReg(FSKRegSyncValue4, 0xA9);
+//    writeReg(FSKRegSyncValue5, 0x55);
+//    writeReg(FSKRegSyncValue6, 0x66);
+//    writeReg(FSKRegSyncValue7, 0x65);
+//    writeReg(FSKRegSyncValue8, 0x96);
+
+ 
     // configure frequency
     configChannel();
     // configure output power
+    writeReg(RegPaRamp, 0x49); 
     configPower();
 
     // set the IRQ mapping DIO0=PacketSent DIO1=NOP DIO2=NOP
     writeReg(RegDioMapping1, MAP_DIO0_FSK_READY|MAP_DIO1_FSK_NOP|MAP_DIO2_FSK_TXNOP);
 
     // initialize the payload size and address pointers
-    writeReg(FSKRegPayloadLength, LMIC.dataLen+1); // (insert length byte into payload))
+//    printf("txfsk () FSKRegPayloadLength = %x\n", readReg(FSKRegPayloadLength));
+    writeReg(FSKRegPayloadLength, LMIC.dataLen); // (insert length byte into payload))
+//    writeReg(FSKRegPayloadLength, LMIC.dataLen + 5); // (insert length byte into payload))
+//    writeReg(FSKRegPayloadLength, LMIC.dataLen + 3); // (insert length byte into payload))
+//    printf("txfsk () FSKRegPayloadLength = %x\n", readReg(FSKRegPayloadLength));
+//    printf("txfsk () FSKRegFifoThresh = %x\n", readReg(FSKRegFifoThresh));
 
-    // download length byte and buffer to the radio FIFO
-    writeReg(RegFifo, LMIC.dataLen);
-    writeBuf(RegFifo, LMIC.frame, LMIC.dataLen);
+    // download buffer to the radio FIFO
+
+    writeReg(FSKRegFifoThresh, RF_FIFOTHRESH_TXSTARTCONDITION_FIFONOTEMPTY  );   
+
+//    FIFO_Push_Inv(0x31);
+//    FIFO_Push_Inv(0xFA);
+//    FIFO_Push_Inv(0xB6);
+
+    writeBuf_Inv(RegFifo, LMIC.frame, LMIC.dataLen);
+//    writeReg(RegFifo, ~0x8d /* 0xCF */);
+//    writeReg(RegFifo, ~0x59 /* 0xB1 */);
+//    FIFO_Push_Inv((crc16 >>  8) & 0xFF );
+//    FIFO_Push_Inv((crc16      ) & 0xFF );
+
+    //printf("LMIC.dataLen = %d\n", LMIC.dataLen);
+    //writeReg(FSKRegFifoThresh, RF_FIFOTHRESH_TXSTARTCONDITION_FIFONOTEMPTY | 0x18  );
+    //writeReg(FSKRegFifoThresh, 0x80  );    
 
     // enable antenna switch for TX
     hal_pin_rxtx(1);
@@ -522,7 +588,9 @@ static void txlora () {
 static void starttx () {
     ASSERT( (readReg(RegOpMode) & OPMODE_MASK) == OPMODE_SLEEP );
     if(getSf(LMIC.rps) == FSK) { // FSK modem
+//printf("starttx before txfsk\n");
         txfsk();
+//printf("starttx after txfsk\n");
     } else { // LoRa modem
         txlora();
     }
@@ -606,6 +674,7 @@ static void rxlora (u1_t rxmode) {
 }
 
 static void rxfsk (u1_t rxmode) {
+//printf("rxfsk rxmode = %x\n", rxmode);
     // only single rx (no continuous scanning, no noise sampling)
     ASSERT( rxmode == RXMODE_SINGLE );
     // select FSK modem (from sleep mode)
@@ -622,28 +691,45 @@ static void rxfsk (u1_t rxmode) {
     // configure receiver
     writeReg(FSKRegRxConfig, 0x1E); // AFC auto, AGC, trigger on preamble?!?
     // set receiver bandwidth
-    writeReg(FSKRegRxBw, 0x0B); // 50kHz SSb
+//    writeReg(FSKRegRxBw, 0x0B); // 50kHz SSb
+    writeReg(FSKRegRxBw, 0x0A); // 100kHz SSb
     // set AFC bandwidth
-    writeReg(FSKRegAfcBw, 0x12); // 83.3kHz SSB
+//    writeReg(FSKRegAfcBw, 0x12); // 83.3kHz SSB
+    writeReg(FSKRegAfcBw, 0x11); // 166.6kHz SSB
     // set preamble detection
     writeReg(FSKRegPreambleDetect, 0xAA); // enable, 2 bytes, 10 chip errors
+//    writeReg(FSKRegPreambleDetect, 0xCA); // enable, 3 bytes, 10 chip errors
     // set sync config
-    writeReg(FSKRegSyncConfig, 0x12); // no auto restart, preamble 0xAA, enable, fill FIFO, 3 bytes sync
+//    writeReg(FSKRegSyncConfig, 0x12); // no auto restart, preamble 0xAA, enable, fill FIFO, 3 bytes sync
+    writeReg(FSKRegSyncConfig, 0x31);
+   
     // set packet config
-    writeReg(FSKRegPacketConfig1, 0xD8); // var-length, whitening, crc, no auto-clear, no adr filter
+//    writeReg(FSKRegPacketConfig1, 0xD8); // var-length, whitening, crc, no auto-clear, no adr filter
+    writeReg(FSKRegPacketConfig1, 0x20 /* 0xD0 */);  // Manchester (inverted)
     writeReg(FSKRegPacketConfig2, 0x40); // packet mode
+    writeReg(FSKRegPayloadLength, 24 + 3 + 2); // (insert length byte into payload))
     // set sync value
-    writeReg(FSKRegSyncValue1, 0xC1);
-    writeReg(FSKRegSyncValue2, 0x94);
-    writeReg(FSKRegSyncValue3, 0xC1);
+    /* IEEE  Manchester(F5) = 55 99 */
+    writeReg(FSKRegSyncValue1, 0x55);
+    writeReg(FSKRegSyncValue2, 0x99);
     // set preamble timeout
     writeReg(FSKRegRxTimeout2, 0xFF);//(LMIC.rxsyms+1)/2);
+#if 0
     // set bitrate
     writeReg(FSKRegBitrateMsb, 0x02); // 50kbps
     writeReg(FSKRegBitrateLsb, 0x80);
     // set frequency deviation
     writeReg(FSKRegFdevMsb, 0x01); // +/- 25kHz
     writeReg(FSKRegFdevLsb, 0x99);
+#else
+    // set bitrate
+    writeReg(FSKRegBitrateMsb, 0x01); // 100kbps
+    writeReg(FSKRegBitrateLsb, 0x40);
+    // set frequency deviation
+    writeReg(FSKRegFdevMsb, 0x03); // +/- 50kHz
+    writeReg(FSKRegFdevLsb, 0x33);
+#endif
+
 
     // configure DIO mapping DIO0=PayloadReady DIO1=NOP DIO2=TimeOut
     writeReg(RegDioMapping1, MAP_DIO0_FSK_READY|MAP_DIO1_FSK_NOP|MAP_DIO2_FSK_TIMEOUT);
@@ -657,6 +743,8 @@ static void rxfsk (u1_t rxmode) {
 }
 
 static void startrx (u1_t rxmode) {
+
+//printf("startrx RegOpMode = %x\n", readReg(RegOpMode));
     ASSERT( (readReg(RegOpMode) & OPMODE_MASK) == OPMODE_SLEEP );
     if(getSf(LMIC.rps) == FSK) { // FSK modem
         rxfsk(rxmode);
@@ -674,16 +762,22 @@ void radio_init () {
     hal_disableIRQs();
 #endif
 
+#if 1
     // manually reset radio
 #ifdef CFG_sx1276_radio
     hal_pin_rst(0); // drive RST pin low
 #else
     hal_pin_rst(1); // drive RST pin high
 #endif
-    hal_waitUntil(os_getTime()+ms2osticks(1)); // wait >100us
-    hal_pin_rst(2); // configure RST pin floating!
-    hal_waitUntil(os_getTime()+ms2osticks(5)); // wait 5ms
-
+//    hal_waitUntil(os_getTime()+ms2osticks(1)); // wait >100us
+    hal_waitUntil(os_getTime()+ms2osticks(150));
+//    hal_pin_rst(2); // configure RST pin floating!
+    hal_pin_rst(1); // drive RST pin high
+    //hal_waitUntil(os_getTime()+ms2osticks(5)); // wait 5ms
+    hal_waitUntil(os_getTime()+ms2osticks(100));
+#endif
+    //delay(5);
+    //printf("radio_init(): 2 RegOpMode = %x\n", readReg(RegOpMode));
     opmode(OPMODE_SLEEP);
 
     // some sanity checks, e.g., read version number
@@ -695,6 +789,16 @@ void radio_init () {
 #else
 #error Missing CFG_sx1272_radio/CFG_sx1276_radio
 #endif
+
+//    printf("RegDioMapping1 = %x\n", readReg(RegDioMapping1));
+    // set the IRQ mapping DIO0=NOP DIO1=NOP DIO2=NOP
+    writeReg(RegDioMapping1, 0);
+    // mask all radio IRQs
+    writeReg(LORARegIrqFlagsMask, 0xFF);
+    // clear radio IRQ flags
+    writeReg(LORARegIrqFlags, 0xFF);
+
+#if 0
     // seed 15-byte randomness via noise rssi
     rxlora(RXMODE_RSSI);
     while( (readReg(RegOpMode) & OPMODE_MASK) != OPMODE_RX ); // continuous rx
@@ -706,7 +810,7 @@ void radio_init () {
         }
     }
     randbuf[0] = 16; // set initial index
-
+#endif
 #ifdef CFG_sx1276mb1_board
     // chain calibration
     writeReg(RegPaConfig, 0);
@@ -727,10 +831,11 @@ void radio_init () {
 #endif /* CFG_sx1276mb1_board */
 
     opmode(OPMODE_SLEEP);
-
+//printf("1.2 ***\n");
 #ifndef ESP8266
     hal_enableIRQs();
 #endif
+//printf("1.3 ***\n");
 }
 
 // return next random byte derived from seed buffer
@@ -769,6 +874,7 @@ static CONST_TABLE(u2_t, LORA_RXDONE_FIXUP)[] = {
 // This trick directly read the Lora module IRQ register
 // and thus avoid any IRQ line used to controler
 u1_t radio_has_irq (void) {
+printf("radio_has_irq\n");
     u1_t flags ;
     if( (readReg(RegOpMode) & OPMODE_LORA) != 0) { // LORA modem
         flags = readReg(LORARegIrqFlags);
@@ -789,6 +895,7 @@ u1_t radio_has_irq (void) {
 // called by hal ext IRQ handler
 // (radio goes to stanby mode after tx/rx operations)
 void radio_irq_handler (u1_t dio) {
+//printf("radio_irq_handler dio = %d\n", dio);
     ostime_t now = os_getTime();
     if( (readReg(RegOpMode) & OPMODE_LORA) != 0) { // LORA modem
         u1_t flags = readReg(LORARegIrqFlags);
@@ -822,6 +929,7 @@ void radio_irq_handler (u1_t dio) {
     } else { // FSK modem
         u1_t flags1 = readReg(FSKRegIrqFlags1);
         u1_t flags2 = readReg(FSKRegIrqFlags2);
+//printf("dio = %x flags1 = %x flags2 = %x\n", dio, flags1, flags2);
         if( flags2 & IRQ_FSK2_PACKETSENT_MASK ) {
             // save exact tx time
             LMIC.txend = now;
@@ -831,7 +939,7 @@ void radio_irq_handler (u1_t dio) {
             // read the PDU and inform the MAC that we received something
             LMIC.dataLen = readReg(FSKRegPayloadLength);
             // now read the FIFO
-            readBuf(RegFifo, LMIC.frame, LMIC.dataLen);
+            readBuf_Inv(RegFifo, LMIC.frame, LMIC.dataLen);
             // read rx quality parameters
             LMIC.snr  = 0; // determine snr
             LMIC.rssi = 0; // determine rssi
@@ -839,10 +947,14 @@ void radio_irq_handler (u1_t dio) {
             // indicate timeout
             LMIC.dataLen = 0;
         } else {
+            printf("dio = %x flags1 = %x flags2 = %x\n", dio, flags1, flags2);
+            printf("FSKRegPayloadLength = %x FSKRegFifoThresh = %x\n", readReg(FSKRegPayloadLength), readReg(FSKRegFifoThresh));
             ASSERT(0);
+            //LMIC.txend = now;
         }
     }
     // go from stanby to sleep
+//printf("radio_irq_handler opmode(OPMODE_SLEEP)\n");
     opmode(OPMODE_SLEEP);
     // run os job (use preset func ptr)
     os_setCallback(&LMIC.osjob, LMIC.osjob.func);

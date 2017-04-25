@@ -20,8 +20,11 @@ static struct {
 void os_init () {
     memset(&OS, 0x00, sizeof(OS));
     hal_init();
+//printf("1 ***\n");
     radio_init();
+//printf("2 ***\n");
     LMIC_init();
+//printf("3 ***\n");
 }
 
 ostime_t os_getTime () {
@@ -103,7 +106,7 @@ void os_runloop_once() {
         hal_sleep(); // wake by irq (timer already restarted)
     }
     hal_enableIRQs();
-    if(j) { // run job callback
-        j->func(j);
+    if(j && j->func) { // run job callback
+          j->func(j);
     }
 }
