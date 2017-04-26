@@ -1,3 +1,49 @@
+Emulation of Nordic NRF905 silicon's RF frames with Semtech SX1276 in packet mode.<br>
+Proof of concept.
+====================
+
+This repository contains an example that Semtech SX1276-based HopeRF RFM95W module is able
+to operate as a link partner to Noric NRF905-based PTR8000 RF module.<br>
+The focus was only on specific "FLARM mode" of radio settings. Other modes were not tested.
+
+
+# Testbed
+One RFM95W module is connected to GPIO pins of Raspberry Pi 2 Model B Ver 1.1<br>
+One NRF905 module is connected to GPIO pins of Raspberry Pi Zero Ver 1.3
+
+Picture of the testbed:
+![](https://github.com/lyusupov/arduino-lmic/raw/rpi/doc/nrf905-rfm95w-raspberries-testbed.jpg)
+
+RFM95W module is driven by *Arduino-LMIC* library that is mostly developed by Matthijs Kooijman
+and been ported onto Raspberry Pi by Charles Hallard. I've just applied some "mods" to put SX1276 into Nordic compatible mode.<br>
+NRF905 module is driven by *libnrf905* library that was created by David Imhoff and modified by Stanislaw Pusep.
+
+# These settings were applied on SX1276 to achieve the compatibility:
+- packet mode
+- FSK type of modulation
+- frequncy deviation is +/- 50kHz 
+- Gaussian BT shaping factor is 0.5
+- 100kbps bit rate (50kbps effective for payload after Manchester)
+- receiver bandwidth is 100kHz SSb
+- AFC bandwidth is 166.6kHz SSb 
+- preamble is one byte of 0x55
+- syncword is 0xF5 (Manchester: 0x55 0x99)
+- address field is 0x31FAB6
+- payload size is 24 bytes
+- checksum type is CRC16 (2 bytes) and seed value is 0xFFFF
+
+# Issues that was found out and resolved:
+1) Semtech is using "inverted Manchester" hardware encoding (for payload) relative to the Nordic one.
+Because of that, all the payload bytes has to be inverted by MCU before each push into FIFO and after each pull.
+2) Although Nordic and Semtech are both using CCITT standard of hardware CRC16 checksum - but they use different seed value.
+Because of that and inverted payload as well, the emulation code is employing "software CRC16 gen/check" done by MCU. 
+
+For details, please, read [this commit data](https://github.com/lyusupov/arduino-lmic/commit/f327d096b8cf4ba3f68c2b658ebb409b2ffd62a0).
+
+The text below contains original README of Charles Hallard's Arduino-LMIC repository:
+
+----------------------
+
 Arduino-LMIC library
 ====================
 This repository contains the IBM LMIC (LoraMAC-in-C) library, slightly
