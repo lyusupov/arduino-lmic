@@ -32,13 +32,13 @@ NRF905 module is driven by [*libnrf905*](https://github.com/creaktive/nrf905_stu
 - payload size is 24 bytes
 - checksum type is CRC16 (2 bytes) and seed value is 0xFFFF
 
-# Issues that was found out and resolved:
+# Issues that were found out and been resolved:
 1) Semtech is using "inverted Manchester" hardware encoding (for payload and CS) relative to the Nordic's one.
 Because of that, all the payload bytes has to be inverted by MCU before each push into FIFO and after each pull.
 2) Although Nordic and Semtech are both using CCITT standard of hardware CRC16 checksum - but their seed values for the algorithm are different.
 Because of that and inverted payload as well, the emulation code is employing "software CRC16 gen/check" done by MCU. 
 
-For details, please, read [this commit data](https://github.com/lyusupov/arduino-lmic/commit/f327d096b8cf4ba3f68c2b658ebb409b2ffd62a0).
+For more details, please, read [this commit data](https://github.com/lyusupov/arduino-lmic/commit/f327d096b8cf4ba3f68c2b658ebb409b2ffd62a0).
 
 The text below contains original README of Charles Hallard's Arduino-LMIC repository:
 
