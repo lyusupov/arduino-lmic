@@ -21,7 +21,7 @@ NRF905 module is driven by *libnrf905* library that was created by David Imhoff 
 # These settings were applied on SX1276 to achieve the compatibility:
 - packet mode
 - FSK type of modulation
-- frequncy deviation is +/- 50kHz 
+- frequency deviation is +/- 50kHz 
 - Gaussian BT shaping factor is 0.5
 - 100kbps bit rate (50kbps effective for payload after Manchester)
 - receiver bandwidth is 100kHz SSb
