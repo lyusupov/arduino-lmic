@@ -38,7 +38,7 @@
 // Pin mapping
 const lmic_pinmap lmic_pins = { 
     .nss  = RF_CS_PIN,
-    .rxtx = LMIC_UNUSED_PIN,
+    .rxtx = { LMIC_UNUSED_PIN, LMIC_UNUSED_PIN },
     .rst  = RF_RST_PIN,
     .dio  = {RF_IRQ_PIN, LMIC_UNUSED_PIN, LMIC_UNUSED_PIN},
 };
